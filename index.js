@@ -55,11 +55,23 @@ app.put("/update-subscription", (req, res) => {
     return res.status(400).json({ error: error.details });
   }
 
-  let subscription = subscriptions.find((item) => item.id === value.id);
-  subscription.name = value.name || subscription.name;
-  subscription.monthlyCost = value.monthlyCost || subscription.email;
-  subscription.billingCycle = value.billingCycle || subscription.age;
+  const subscriptionIndex = subscriptions.findIndex(
+    (item) => item.id === value.id
+  );
 
+  if (subscriptionIndex === -1) {
+    return res.status(404).json({ error: "Subscription not found" });
+  }
+
+  const subscription = subscriptions[subscriptionIndex];
+  const updatedSubscription = {
+    ...subscription,
+    name: value.name || subscription.name,
+    monthlyCost: value.monthlyCost || subscription.monthlyCost,
+    billingCycle: value.billingCycle || subscription.billingCycle,
+  };
+
+  subscriptions[subscriptionIndex] = updatedSubscription;
   return res.json(subscription);
 });
 
