@@ -6,28 +6,17 @@ import {
   removeSubscriptionSchema,
   updateSubscriptionSchema,
 } from "./validators/subscriptionValidator.js";
+import { subscriptions } from "./types/subscriptions.js";
+import { validateRequest } from "./helpers/helpers.js";
 
 const app = express();
 const port = 3000;
 app.use(morgan("dev"));
 app.use(express.json());
 
-/**
- * @typedef {Object} Subscription
- * @property {string} name - Name of the subscription
- * @property {number} monthlyCost - Monthly cost of the subscription
- * @property {'monthly' | 'yearly'} billingCycle - Billing cycle of the subscription
- */
-
-/** @type {Subscription[]} */
-let subscriptions = [];
-
 app.post("/add-subscription", (req, res) => {
-  const { error, value } = createSubscriptionSchema.validate(req.body);
-
-  if (error) {
-    return res.status(400).json({ error: error.details });
-  }
+  const value = validateRequest(createSubscriptionSchema, req, res);
+  if (!value) return;
 
   subscriptions.push({ id: subscriptions.length + 1, ...value });
   return res.json({ message: "Subscription created", data: value });
@@ -38,41 +27,36 @@ app.get("/subscriptions", (req, res) => {
 });
 
 app.post("/remove-subscription", (req, res) => {
-  const { error, value } = removeSubscriptionSchema.validate(req.body);
+  const value = validateRequest(removeSubscriptionSchema, req, res);
+  if (!value) return;
 
-  if (error) {
-    return res.status(400).json({ error: error.details });
+  const indexToRemove = subscriptions.findIndex((item) => item.id === value.id);
+  if (indexToRemove === -1) {
+    return res.status(404).json({ error: "Subscription not found" });
   }
 
-  subscriptions = subscriptions.filter((item) => item.id !== value.id);
-  return res.json({ message: "Subscription remove", data: value });
+  subscriptions.splice(indexToRemove, 1);
+  return res.json({ message: "Subscription removed", data: value });
 });
 
 app.put("/update-subscription", (req, res) => {
-  const { error, value } = updateSubscriptionSchema.validate(req.body);
-
-  if (error) {
-    return res.status(400).json({ error: error.details });
-  }
+  const value = validateRequest(updateSubscriptionSchema, req, res);
+  if (!value) return;
 
   const subscriptionIndex = subscriptions.findIndex(
     (item) => item.id === value.id
   );
-
   if (subscriptionIndex === -1) {
     return res.status(404).json({ error: "Subscription not found" });
   }
 
-  const subscription = subscriptions[subscriptionIndex];
   const updatedSubscription = {
-    ...subscription,
-    name: value.name || subscription.name,
-    monthlyCost: value.monthlyCost || subscription.monthlyCost,
-    billingCycle: value.billingCycle || subscription.billingCycle,
+    ...subscriptions[subscriptionIndex],
+    ...value,
   };
 
   subscriptions[subscriptionIndex] = updatedSubscription;
-  return res.json(subscription);
+  return res.json(updatedSubscription);
 });
 
 app.get("/calculate", (req, res) => {
