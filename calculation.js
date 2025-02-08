@@ -5,7 +5,8 @@
  */
 export function calculateAnnualCost(subscriptions) {
   return subscriptions.reduce((total, sub) => {
-    const yearlyCost = sub.billingCycle === 'monthly' ? sub.monthlyCost * 12 : sub.monthlyCost;
+    const yearlyCost =
+      sub.billingCycle === "monthly" ? sub.monthlyCost * 12 : sub.monthlyCost;
     return total + yearlyCost;
   }, 0);
 }
@@ -17,17 +18,20 @@ export function calculateAnnualCost(subscriptions) {
  * @returns {string[]} List of subscriptions to cancel
  */
 export function suggestCancellations(subscriptions, targetSavings) {
-  const sortedSubs = [...subscriptions].sort((a, b) => (b.monthlyCost * 12) - (a.monthlyCost * 12));
-  
+  const sortedSubs = [...subscriptions].sort(
+    (a, b) => b.monthlyCost * 12 - a.monthlyCost * 12
+  );
+
   let accumulatedSavings = 0;
   const toCancel = [];
-  
+
   for (const sub of sortedSubs) {
-    const yearlyCost = sub.billingCycle === 'monthly' ? sub.monthlyCost * 12 : sub.monthlyCost;
+    const yearlyCost =
+      sub.billingCycle === "monthly" ? sub.monthlyCost * 12 : sub.monthlyCost;
     if (accumulatedSavings >= targetSavings) break;
     toCancel.push(sub.name);
     accumulatedSavings += yearlyCost;
   }
-  
+
   return toCancel;
 }
