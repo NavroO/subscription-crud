@@ -12,23 +12,33 @@ export class SubscriptionService {
     private subscriptionRepository: Repository<Subscription>,
   ) {}
 
-  create(createSubscriptionDto: CreateSubscriptionDto) {
-    return 'This action adds a new subscription';
-  }
-
-  findAll() {
+  findAll(): Promise<Subscription[]> {
     return this.subscriptionRepository.find();
   }
 
-  findOne(id: number) {
-    return this.subscriptionRepository.findOneBy({ id });
+  findOne(id: number): Promise<Subscription | null> {
+    return this.subscriptionRepository.findOne({ where: { id } });
   }
 
-  update(id: number, updateSubscriptionDto: UpdateSubscriptionDto) {
-    return `This action updates a #${id} subscription`;
+  async update(
+    id: number,
+    updateData: UpdateSubscriptionDto,
+  ): Promise<Subscription | null> {
+    const subscription = await this.subscriptionRepository.findOne({
+      where: { id },
+    });
+    if (!subscription) return null;
+
+    Object.assign(subscription, updateData);
+    return this.subscriptionRepository.save(subscription);
   }
 
-  async remove(id: number) {
+  async create(data: CreateSubscriptionDto): Promise<Subscription> {
+    const subscription = this.subscriptionRepository.create(data);
+    return this.subscriptionRepository.save(subscription);
+  }
+
+  async remove(id: number): Promise<void> {
     await this.subscriptionRepository.delete(id);
   }
 }

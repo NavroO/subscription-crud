@@ -10,6 +10,7 @@ import {
 import { SubscriptionService } from './subscription.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { Subscription } from './entities/subscription.entity';
 
 @Controller('subscription')
 export class SubscriptionController {
@@ -31,10 +32,10 @@ export class SubscriptionController {
   }
 
   @Patch(':id')
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateSubscriptionDto: UpdateSubscriptionDto,
-  ) {
+  ): Promise<Subscription | null> {
     return this.subscriptionService.update(+id, updateSubscriptionDto);
   }
 
