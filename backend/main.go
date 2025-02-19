@@ -9,6 +9,7 @@ import (
 	"database/sql"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -21,6 +22,12 @@ type Subscription struct {
 	Name         string  `json:"name"`
 	MonthlyCost  float64 `json:"monthlyCost"`
 	BillingCycle string  `json:"billingCycle"`
+}
+
+type DashboardResponse struct {
+	TotalSubscriptions int     `json:"total_subscriptions"`
+	MonthlySpend       float64 `json:"monthly_spend"`
+	PotentialSavings   float64 `json:"potential_savings"`
 }
 
 var db *sql.DB
@@ -40,23 +47,47 @@ func connectToDatabase() (*sql.DB, error) {
 	return db, nil
 }
 
-func getSubscription(w http.ResponseWriter, r *http.Request) {
-	var subscription Subscription
+func getDashboardInfo(w http.ResponseWriter, r *http.Request) {
+	var dashboardResponse DashboardResponse
 
-	err := db.QueryRow("SELECT id, name, monthly_cost, billing_cycle FROM subscription").
-		Scan(&subscription.ID, &subscription.Name, &subscription.MonthlyCost, &subscription.BillingCycle)
-
+	err := db.QueryRow("SELECT COUNT(id), SUM(monthly_cost) FROM subscription").Scan(&dashboardResponse.TotalSubscriptions, &dashboardResponse.MonthlySpend)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			http.Error(w, "Subscription not found", http.StatusNotFound)
-			return
-		}
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
+	dashboardResponse.PotentialSavings = dashboardResponse.MonthlySpend * 0.1
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(subscription)
+	json.NewEncoder(w).Encode(dashboardResponse)
+}
+
+func getSubscriptions(w http.ResponseWriter, r *http.Request) {
+	var subscriptions []Subscription
+
+	rows, err := db.Query("SELECT id, name, monthly_cost, billing_cycle FROM subscription")
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var subscription Subscription
+		if err := rows.Scan(&subscription.ID, &subscription.Name, &subscription.MonthlyCost, &subscription.BillingCycle); err != nil {
+			http.Error(w, "Failed to scan subscription", http.StatusInternalServerError)
+			return
+		}
+		subscriptions = append(subscriptions, subscription)
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, "Error during iteration", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(subscriptions)
 }
 
 func addSubscription(w http.ResponseWriter, r *http.Request) {
@@ -83,11 +114,49 @@ func addSubscription(w http.ResponseWriter, r *http.Request) {
 }
 
 func updateSubscription(w http.ResponseWriter, r *http.Request) {
-	// code to update a subscription
+	var subscription Subscription
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	id := r.FormValue("id")
+	name := r.FormValue("name")
+	monthlyCost := r.FormValue("monthlyCost")
+	billingCycle := r.FormValue("billingCycle")
+
+	_, err = db.Exec("UPDATE subscription SET name = $1, monthly_cost = $2, billing_cycle = $3 WHERE id = $4",
+		name, monthlyCost, billingCycle, id)
+
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(subscription)
 }
 
-func deleteSubscription(w http.ResponseWriter, r http.Request) {
-	// code to delete a subscription
+func deleteSubscription(w http.ResponseWriter, r *http.Request) {
+	var subscription Subscription
+	err := r.ParseForm()
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	id := r.FormValue("id")
+
+	_, err = db.Exec("DELETE FROM subscription WHERE id = $1", id)
+
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(subscription)
 }
 
 func runMigrations() {
@@ -119,12 +188,23 @@ func main() {
 	router := mux.NewRouter()
 
 	subscriptionRoutes := router.PathPrefix("/api/v1/subscriptions").Subrouter()
-	subscriptionRoutes.HandleFunc("/", getSubscription).Methods("GET")
+	subscriptionRoutes.HandleFunc("/", getSubscriptions).Methods("GET")
 	subscriptionRoutes.HandleFunc("/", addSubscription).Methods("POST")
+	subscriptionRoutes.HandleFunc("/", updateSubscription).Methods("PUT")
+	subscriptionRoutes.HandleFunc("/", deleteSubscription).Methods("DELETE")
+	subscriptionRoutes.HandleFunc("/getDashboardInfo", getDashboardInfo).Methods("GET")
+
+	corsHandler := cors.New(cors.Options{
+		AllowedOrigins: []string{"http://localhost:3000"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE"},
+		AllowedHeaders: []string{"Content-Type"},
+	})
+
+	handler := corsHandler.Handler(router)
 
 	log.Println("Starting server on port 8080...")
 
-	err = http.ListenAndServe(":8080", router)
+	err = http.ListenAndServe(":8080", handler)
 	if err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
