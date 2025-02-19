@@ -41,11 +41,18 @@ func connectToDatabase() (*sql.DB, error) {
 }
 
 func getSubscription(w http.ResponseWriter, r *http.Request) {
-	subscription := &Subscription{
-		ID:           "1",
-		Name:         "Basic",
-		MonthlyCost:  "10",
-		BillingCycle: "monthly",
+	var subscription Subscription
+
+	err := db.QueryRow("SELECT id, name, monthly_cost, billing_cycle FROM subscriptions").
+		Scan(&subscription.ID, &subscription.Name, &subscription.MonthlyCost, &subscription.BillingCycle)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Subscription not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -87,6 +94,7 @@ func main() {
 	}
 
 	log.Println("Connected to database successfully!")
+
 	runMigrations()
 
 	router := mux.NewRouter()
@@ -94,5 +102,10 @@ func main() {
 	subscriptionRoutes := router.PathPrefix("/api/v1/subscriptions").Subrouter()
 	subscriptionRoutes.HandleFunc("/", getSubscription).Methods("GET")
 
-	http.ListenAndServe(":8080", router)
+	log.Println("Starting server on port 8080...")
+
+	err = http.ListenAndServe(":8080", router)
+	if err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
 }
