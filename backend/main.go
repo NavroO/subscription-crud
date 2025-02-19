@@ -17,10 +17,10 @@ import (
 )
 
 type Subscription struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	MonthlyCost  string `json:"monthlyCost"`
-	BillingCycle string `json:"billingCycle"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	MonthlyCost  float64 `json:"monthlyCost"`
+	BillingCycle string  `json:"billingCycle"`
 }
 
 var db *sql.DB
@@ -43,7 +43,7 @@ func connectToDatabase() (*sql.DB, error) {
 func getSubscription(w http.ResponseWriter, r *http.Request) {
 	var subscription Subscription
 
-	err := db.QueryRow("SELECT id, name, monthly_cost, billing_cycle FROM subscriptions").
+	err := db.QueryRow("SELECT id, name, monthly_cost, billing_cycle FROM subscription").
 		Scan(&subscription.ID, &subscription.Name, &subscription.MonthlyCost, &subscription.BillingCycle)
 
 	if err != nil {
@@ -60,7 +60,26 @@ func getSubscription(w http.ResponseWriter, r *http.Request) {
 }
 
 func addSubscription(w http.ResponseWriter, r *http.Request) {
-	// code to add a new subscription
+	var subscription Subscription
+	err := json.NewDecoder(r.Body).Decode(&subscription)
+
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	err = db.QueryRow("INSERT INTO subscription (name, monthly_cost, billing_cycle) VALUES ($1, $2, $3) RETURNING id",
+		subscription.Name, subscription.MonthlyCost, subscription.BillingCycle).Scan(&subscription.ID)
+
+	if err != nil {
+		fmt.Println("Schodaw")
+		fmt.Println(err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(subscription)
 }
 
 func updateSubscription(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +120,7 @@ func main() {
 
 	subscriptionRoutes := router.PathPrefix("/api/v1/subscriptions").Subrouter()
 	subscriptionRoutes.HandleFunc("/", getSubscription).Methods("GET")
+	subscriptionRoutes.HandleFunc("/", addSubscription).Methods("POST")
 
 	log.Println("Starting server on port 8080...")
 
