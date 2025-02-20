@@ -85,17 +85,23 @@ export default function Dashboard() {
         ) : (
           <LoadingState name="Monthly Spend" />
         )}
-        <Card>
-          <CardHeader>
-            <CardTitle>Potential Savings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">$215.76</p>
-            <Link href="/recommendations">
-              <Button className="mt-4">View Recommendations</Button>
-            </Link>
-          </CardContent>
-        </Card>
+        {dashboardInfo ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Potential Savings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">
+                ${dashboardInfo.potential_savings.toFixed(2)}
+              </p>
+              <Link href="/recommendations">
+                <Button className="mt-4">View Recommendations</Button>
+              </Link>
+            </CardContent>
+          </Card>
+        ) : (
+          <LoadingState name="Potential Savings" />
+        )}
       </div>
       <Card>
         <CardHeader>

@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"database/sql"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -31,6 +34,83 @@ type DashboardResponse struct {
 }
 
 var db *sql.DB
+
+var jwtSecret = []byte("your-secret-key")
+
+func GenerateToken(username string) (string, error) {
+	claims := jwt.MapClaims{
+		"username": username,
+		"exp":      time.Now().Add(time.Hour * 24).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
+}
+
+func ValidateToken(tokenString string) (*jwt.Token, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return jwtSecret, nil
+	})
+
+	return token, err
+}
+
+func loginUser(username, password string) (string, error) {
+	var storedHash string
+
+	err := db.QueryRow("SELECT password_hash FROM users WHERE username = $1", username).Scan(&storedHash)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("user not found")
+	} else if err != nil {
+		return "", fmt.Errorf("database error: %v", err)
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password))
+	if err != nil {
+		return "", fmt.Errorf("invalid password")
+	}
+
+	// Generate JWT token
+	token, err := GenerateToken(username)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate token: %v", err)
+	}
+
+	return token, nil
+}
+
+func protectedEndpoint(tokenString string) {
+	token, err := ValidateToken(tokenString)
+	if err != nil || !token.Valid {
+		fmt.Println("Access denied: invalid token")
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		fmt.Println("Access denied: invalid claims")
+		return
+	}
+
+	fmt.Println("Access granted! Welcome,", claims["username"])
+}
+
+func registerUser(name, email, password string) error {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %v", err)
+	}
+
+	_, err = db.Exec("INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3)", name, email, hash)
+	if err != nil {
+		return fmt.Errorf("failed to insert user: %v", err)
+	}
+
+	return nil
+}
 
 func connectToDatabase() (*sql.DB, error) {
 	connStr := "user=tomeknawrocki dbname=subscription_crud sslmode=disable"
@@ -168,10 +248,58 @@ func runMigrations() {
 		log.Fatalf("Migration failed: %v", err)
 	}
 
+	if err := m.Force(1); err != nil {
+		log.Fatalf("Failed to force migration version: %v", err)
+	}
+
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		log.Fatalf("Migration up error: %v", err)
 	}
 	log.Println("Migrations applied successfully!")
+}
+
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	var credentials struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&credentials)
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	token, err := loginUser(credentials.Username, credentials.Password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"token": token})
+}
+
+func registerHandler(w http.ResponseWriter, r *http.Request) {
+	var user struct {
+		Name     string `json:"name"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	err = registerUser(user.Name, user.Email, user.Password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
 }
 
 func main() {
@@ -193,6 +321,10 @@ func main() {
 	subscriptionRoutes.HandleFunc("/", updateSubscription).Methods("PUT")
 	subscriptionRoutes.HandleFunc("/", deleteSubscription).Methods("DELETE")
 	subscriptionRoutes.HandleFunc("/getDashboardInfo", getDashboardInfo).Methods("GET")
+
+	authRoutes := router.PathPrefix("/auth").Subrouter()
+	authRoutes.HandleFunc("/login", loginHandler).Methods("POST")
+	authRoutes.HandleFunc("/register", registerHandler).Methods("POST")
 
 	corsHandler := cors.New(cors.Options{
 		AllowedOrigins: []string{"http://localhost:3000"},
